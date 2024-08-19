@@ -17,6 +17,8 @@ storage {
 }
 
 abi Example {
+    fn get_timestamp() -> u64;
+
     #[storage(read)]
     fn get_last_update_time() -> u64;
 
@@ -28,6 +30,10 @@ abi Example {
 }
 
 impl Example for Contract {
+    fn get_timestamp() -> u64 {
+        timestamp()
+    }
+
     #[storage(read)]
     fn get_last_update_time() -> u64 {
         storage.example_struct.read().last_update_time

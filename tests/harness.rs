@@ -11,6 +11,7 @@ use fuels::{
     test_helpers::{launch_custom_provider_and_get_wallets, NodeConfig, Trigger, WalletsConfig},
     types::transaction::TxPolicies,
 };
+use pretty_assertions::assert_eq;
 use rand::Rng;
 
 abigen!(Contract(
@@ -51,6 +52,20 @@ impl ExampleContract {
     }
 
     // Contract methods
+    pub async fn get_timestamp_simulate(&self) -> anyhow::Result<u64> {
+        Ok(self
+            .instance
+            .methods()
+            .get_timestamp()
+            .simulate()
+            .await?
+            .value)
+    }
+
+    pub async fn get_timestamp_call(&self) -> anyhow::Result<u64> {
+        Ok(self.instance.methods().get_timestamp().call().await?.value)
+    }
+
     pub async fn get_last_update_time(&self) -> anyhow::Result<u64> {
         Ok(self
             .instance
@@ -99,7 +114,7 @@ pub async fn init_wallets() -> Vec<WalletUnlocked> {
 }
 
 #[tokio::test]
-async fn main() -> Result<(), anyhow::Error> {
+async fn debug() -> Result<(), anyhow::Error> {
     // Initialize wallets
     let wallets = init_wallets().await;
 
@@ -110,64 +125,25 @@ async fn main() -> Result<(), anyhow::Error> {
     // Deploy contract
     let contract = ExampleContract::deploy(admin).await?;
 
+    let time0_simulate = contract.get_timestamp_simulate().await?;
+    let time0_call = contract.get_timestamp_call().await?;
+
     // Create 10 blocks (10 seconds)
     admin.try_provider()?.produce_blocks(10, None).await?;
 
-    // Call 1 - get_last_update_time (should be 0)
-    let last_update_time = contract
-        .with_account(admin)
-        .await?
-        .get_last_update_time()
-        .await?;
+    let time1_simulate = contract.get_timestamp_simulate().await?;
+    let time1_call = contract.get_timestamp_call().await?;
+    assert_eq!(
+        time1_call,
+        time0_call + 11,
+        "should have increased timestamp between calls"
+    );
+    assert_eq!(
+        time1_simulate,
+        time0_simulate + 11,
+        "should have increased timestamp between simulations"
+    );
 
-    println!("last_update_time: {}", last_update_time);
-    assert!(last_update_time == 0);
-
-    // Create 10 blocks (10 seconds) - use admin provider to get the latest block time
-    admin.try_provider()?.produce_blocks(10, None).await?;
-
-    // Call 2 - refrest_last_update_time
-    contract
-        .with_account(admin)
-        .await?
-        .refrest_last_update_time()
-        .await?;
-
-    // Create 10 blocks (10 seconds) - use admin provider to get the latest block time
-    admin.try_provider()?.produce_blocks(10, None).await?;
-
-    // Call 3 - get_last_update_time (should be 10)
-    let last_update_time = contract
-        .with_account(admin)
-        .await?
-        .get_last_update_time()
-        .await?;
-
-    println!("last_update_time: {}", last_update_time);
-
-    // Call 4 - check_if_current_time_older_than_last_update_time (should succeed, but reverts)
-    // Maybe there is a bug here, because `.simulate()` is used ?`
-    contract
-        .with_account(admin)
-        .await?
-        .check_if_current_time_older_than_last_update_time()
-        .await?;
-
-    // This also fails
-    // Call 5 - check_if_current_time_older_than_last_update_time (should succeed, but reverts)
-    contract
-        .with_account(bob)
-        .await?
-        .check_if_current_time_older_than_last_update_time()
-        .await?;
-
-    // Call 6 (this does not revert) - using `call()` instead of `simulate()`
-    contract
-        .instance
-        .methods()
-        .check_if_current_time_older_than_last_update_time()
-        .call()
-        .await?;
-
+    bob.try_provider()?.produce_blocks(10, None).await?;
     Ok(())
 }
